@@ -1,35 +1,18 @@
+
 const mongoose = require("mongoose");
 
-const TimelineSchema = new mongoose.Schema({
-  eventType: { type: String, required: true },
-  status: { type: String },
-  note: { type: String },
-  updatedBy: { type: String },
-  at: { type: Date, default: Date.now }
-}, { _id: false });
-
-const AssignedStaffSchema = new mongoose.Schema({
-  id: String,
-  name: String,
-  role: String,
-  contact: String
-}, { _id: false });
-
 const IssueSchema = new mongoose.Schema({
-  id: { type: String, required: true, unique: true }, 
-  title: String,
+  title: { type: String, required: true },
   description: String,
-  image: String,
+  image: String,          // simple image URL
+  category: String,
   location: String,
-  status: { type: String, default: "pending" },
-  priority: { type: String, default: "normal" },
-  reporterId: String,
-  reporterName: String,
-  reporterEmail: String,
-  assignedStaff: AssignedStaffSchema,
-  timeline: [TimelineSchema],
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-});
+  status: { type: String, default: "pending" }, // pending, open, in_progress, resolved, closed
+  priority: { type: String, default: "normal" }, // normal | high
+  boosted: { type: Boolean, default: false },
+  upvoteCount: { type: Number, default: 0 },
+  upvoters: [{ type: String }], // store userId as string for simplicity
+  createdBy: { type: String },  // userId string
+}, { timestamps: true });
 
 module.exports = mongoose.model("Issue", IssueSchema);
