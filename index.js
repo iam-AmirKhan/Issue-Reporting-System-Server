@@ -4,20 +4,9 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 
 const app = express();
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      const allowed = ["http://localhost:5173", "http://localhost:5174"];
-      if (allowed.includes(origin)) return cb(null, true);
-      cb(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+app.use(cors());
 
+ting ting
 
 // -------------------------
 // Mongoose model
@@ -66,12 +55,27 @@ async function startServer() {
 
     // start server AFTER successful DB connection
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (err) {
     console.error("Failed to connect to MongoDB:", err);
     process.exit(1);
   }
 }
+
+var admin = require("firebase-admin");
+
+// var serviceAccount = require("./serviceAccountKey.json");
+
+// const serviceAccount = require("./firebase-admin-key.json");
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+
 
 // ========== ROUTES ==========
 
@@ -160,7 +164,7 @@ app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 
 // global error handler
 app.use((err, req, res, next) => {
-  console.error("🔥 SERVER ERROR:", err);
+  console.error(" SERVER ERROR:", err);
   res.status(500).json({ error: "Internal server error" });
 });
 

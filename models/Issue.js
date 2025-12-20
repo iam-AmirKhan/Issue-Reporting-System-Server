@@ -1,18 +1,17 @@
-
-const mongoose = require("mongoose");
-
-const IssueSchema = new mongoose.Schema({
-  title: { type: String, required: true },
+const mongoose = require('mongoose');
+const Schema = mongoose.Schema;
+const IssueSchema = new Schema({
+  title: String,
   description: String,
-  image: String,          // simple image URL
   category: String,
-  location: String,
-  status: { type: String, default: "pending" }, // pending, open, in_progress, resolved, closed
-  priority: { type: String, default: "normal" }, // normal | high
-  boosted: { type: Boolean, default: false },
+  location: { lat: Number, lng: Number, address: String },
+  priority: { type: String, enum: ['normal','high'], default: 'normal' },
+  status: { type: String, enum: ['pending','in-progress','working','resolved','closed','rejected'], default: 'pending' },
+  submitterId: { type: Schema.Types.ObjectId, ref: 'User' },
   upvoteCount: { type: Number, default: 0 },
-  upvoters: [{ type: String }], // store userId as string for simplicity
-  createdBy: { type: String },  // userId string
-}, { timestamps: true });
-
-module.exports = mongoose.model("Issue", IssueSchema);
+  boosted: { type: Boolean, default: false },
+  boostPaidAt: Date,
+  createdAt: { type: Date, default: Date.now },
+});
+IssueSchema.index({ title: 'text', description: 'text' });
+module.exports = mongoose.model('Issue', IssueSchema);
