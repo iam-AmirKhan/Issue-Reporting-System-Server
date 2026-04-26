@@ -1,23 +1,22 @@
-
-const User = require("../models/User");
-
-async function requireRole(roles = []) {
-  return async function (req, res, next) {
+module.exports = function requireRole(roles = []) {
+  return function (req, res, next) {
     try {
-      const fb = req.firebaseUser;
-      if (!fb) return res.status(401).json({ ok:false, message: "Not authenticated" });
-      const user = await User.findOne({ uid: fb.uid });
-      if (!user) return res.status(403).json({ ok:false, message: "User not found" });
-      if (!roles.includes(user.role)) {
-        return res.status(403).json({ ok:false, message: "Forbidden" });
+      if (!req.user) {
+        return res.status(401).json({ message: "User not synced or not found" });
       }
-      req.appUser = user; // attach DB user
+
+      if (req.user.isBlocked) {
+        return res.status(403).json({ message: "Your account is blocked. Please contact authorities." });
+      }
+
+      if (roles.length > 0 && !roles.includes(req.user.role)) {
+        return res.status(403).json({ message: "Access denied: insufficient permissions" });
+      }
+
       next();
     } catch (err) {
       console.error("requireRole error:", err);
-      return res.status(500).json({ ok:false });
+      return res.status(500).json({ message: "Internal server error" });
     }
   };
-}
-
-module.exports = requireRole;
+};

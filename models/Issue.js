@@ -1,17 +1,32 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+
 const IssueSchema = new Schema({
-  title: String,
-  description: String,
-  category: String,
-  location: { lat: Number, lng: Number, address: String },
-  priority: { type: String, enum: ['normal','high'], default: 'normal' },
-  status: { type: String, enum: ['pending','in-progress','working','resolved','closed','rejected'], default: 'pending' },
-  submitterId: { type: Schema.Types.ObjectId, ref: 'User' },
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  category: { type: String, required: true },
+  location: { type: String, required: true },
+  priority: { 
+    type: String, 
+    enum: ['Normal', 'High'], 
+    default: 'Normal' 
+  },
+  status: { 
+    type: String, 
+    enum: ['Pending', 'In-Progress', 'Working', 'Resolved', 'Closed', 'Rejected'], 
+    default: 'Pending' 
+  },
+  images: [{ type: String }],
+  submitterId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  assignedStaffId: { type: Schema.Types.ObjectId, ref: 'User' },
   upvoteCount: { type: Number, default: 0 },
+  upvotedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }], // to track single upvote
   boosted: { type: Boolean, default: false },
   boostPaidAt: Date,
   createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
 });
-IssueSchema.index({ title: 'text', description: 'text' });
+
+IssueSchema.index({ title: 'text', description: 'text', category: 'text', location: 'text' });
+
 module.exports = mongoose.model('Issue', IssueSchema);
