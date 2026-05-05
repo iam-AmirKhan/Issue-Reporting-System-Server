@@ -275,6 +275,14 @@ router.get("/:id", async (req, res) => {
 
 router.post("/", verifyFirebaseToken, requireRole(["citizen"]), async (req, res) => {
   try {
+    const { title, description, category, location } = req.body;
+    if (!title || !description || !category || !location) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing required fields: title, description, category, and location are mandatory.",
+      });
+    }
+
     if (!req.user.isPremium) {
       const count = await Issue.countDocuments({ submitterId: req.user._id });
       if (count >= 3) {
@@ -285,7 +293,6 @@ router.post("/", verifyFirebaseToken, requireRole(["citizen"]), async (req, res)
       }
     }
 
-    const { title, description, category, location } = req.body;
     const images = Array.isArray(req.body.images)
       ? req.body.images
       : [req.body.image].filter(Boolean);
