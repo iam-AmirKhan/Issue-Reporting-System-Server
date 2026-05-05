@@ -8,7 +8,12 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: ["http://localhost:5173", "https://public-issue-client.vercel.app"],
+  origin: [
+    "http://localhost:5173",
+    "https://public-issue-client.vercel.app",
+    "https://public-issue-system.firebaseapp.com",
+    "https://public-issue-system.web.app",
+  ],
   credentials: true,
 }));
 app.use(express.json());
