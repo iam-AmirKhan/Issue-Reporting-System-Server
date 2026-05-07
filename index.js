@@ -1,5 +1,5 @@
 require("dotenv").config();
-const express = require("express");
+const express = require("express"); 
 const mongoose = require("mongoose");
 const cors = require("cors");
 const admin = require("./firebaseAdmin"); // Initializes Firebase Admin
@@ -10,6 +10,7 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:5173",
+    "http://localhost:5174",
     "https://public-issue-client.vercel.app",
     "https://public-issue-system.firebaseapp.com",
     "https://public-issue-system.web.app",

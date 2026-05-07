@@ -23,8 +23,17 @@ const IssueSchema = new Schema({
   upvotedBy: [{ type: Schema.Types.ObjectId, ref: 'User' }], // to track single upvote
   boosted: { type: Boolean, default: false },
   boostPaidAt: Date,
+  id: { type: String, unique: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
+});
+
+// Generate unique ID for issues if not provided
+IssueSchema.pre('save', function(next) {
+  if (!this.id) {
+    this.id = 'issue-' + Math.random().toString(36).substr(2, 9) + '-' + Date.now();
+  }
+  next();
 });
 
 IssueSchema.index({ title: 'text', description: 'text', category: 'text', location: 'text' });

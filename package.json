@@ -21,6 +21,7 @@
     "uuid": "^13.0.0"
   },
   "devDependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "nodemon": "^3.1.11"
   }
 }

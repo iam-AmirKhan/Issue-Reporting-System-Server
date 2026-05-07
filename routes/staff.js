@@ -4,6 +4,30 @@ const Issue = require("../models/Issue");
 const User = require("../models/User");
 const verifyFirebaseToken = require("../middleware/verifyFirebaseToken");
 const requireRole = require("../middleware/requireRole");
+const Timeline = require("../models/Timeline");
+
+function toDbStatus(status) {
+  if (!status) return undefined;
+  const STATUS_MAP = {
+    pending: "Pending",
+    in_progress: "In-Progress",
+    working: "Working",
+    resolved: "Resolved",
+    closed: "Closed",
+    rejected: "Rejected",
+  };
+  const normalized = String(status).trim().toLowerCase().replace("-", "_");
+  return STATUS_MAP[normalized] || status;
+}
+
+async function createTimeline(issueId, status, note, userId) {
+  return Timeline.create({
+    issueId,
+    status: status,
+    note,
+    updatedBy: userId || null,
+  });
+}
 
 const router = express.Router();
 
@@ -70,6 +94,44 @@ router.post("/", verifyFirebaseToken, requireRole(["admin"]), async (req, res) =
   }
 });
 
+
+router.get("/assigned", verifyFirebaseToken, requireRole(["staff"]), async (req, res) => {
+  try {
+    const issues = await Issue.find({ assignedStaffId: req.user._id })
+      .sort({ boosted: -1, createdAt: -1 })
+      .lean();
+    return res.json({ success: true, issues, data: issues });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Failed to load assigned issues" });
+  }
+});
+router.patch("/issues/:id/status", verifyFirebaseToken, requireRole(["staff"]), async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id);
+    if (!issue) return res.status(404).json({ success: false, message: "Issue not found" });
+
+    // Staff can update status of any issue assigned to them
+    // (they only see assigned issues in their dashboard)
+    const oldStatus = issue.status;
+    const nextStatus = toDbStatus(req.body.status);
+    if (!nextStatus) return res.status(400).json({ success: false, message: "Invalid status" });
+    
+    issue.status = nextStatus;
+    issue.updatedAt = new Date();
+    await issue.save();
+    
+    await createTimeline(issue._id, issue.status, `Status changed from ${oldStatus} to ${issue.status}`, req.user._id);
+
+    return res.json({ success: true, issue, data: issue });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Failed to update status" });
+  }
+});
+router.get("/profile", verifyFirebaseToken, requireRole(["staff"]), (req, res) => {
+  return res.json({ success: true, staff: serializeStaff(req.user), data: serializeStaff(req.user) });
+});
 router.put("/:id", verifyFirebaseToken, requireRole(["admin"]), async (req, res) => {
   try {
     const updates = {};
@@ -127,40 +189,7 @@ router.delete("/:id", verifyFirebaseToken, requireRole(["admin"]), async (req, r
   }
 });
 
-router.get("/assigned", verifyFirebaseToken, requireRole(["staff"]), async (req, res) => {
-  try {
-    const issues = await Issue.find({ assignedStaffId: req.user._id })
-      .sort({ boosted: -1, createdAt: -1 })
-      .lean();
-    return res.json({ success: true, issues, data: issues });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: "Failed to load assigned issues" });
-  }
-});
 
-router.patch("/issues/:id/status", verifyFirebaseToken, requireRole(["staff"]), async (req, res) => {
-  try {
-    const issue = await Issue.findById(req.params.id);
-    if (!issue) return res.status(404).json({ success: false, message: "Issue not found" });
 
-    if (String(issue.assignedStaffId) !== String(req.user._id)) {
-      return res.status(403).json({ success: false, message: "Not assigned to this issue" });
-    }
-
-    issue.status = req.body.status;
-    issue.updatedAt = new Date();
-    await issue.save();
-
-    return res.json({ success: true, issue, data: issue });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ success: false, message: "Failed to update status" });
-  }
-});
-
-router.get("/profile", verifyFirebaseToken, requireRole(["staff"]), (req, res) => {
-  return res.json({ success: true, staff: serializeStaff(req.user), data: serializeStaff(req.user) });
-});
 
 module.exports = router;

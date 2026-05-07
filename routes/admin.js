@@ -5,6 +5,16 @@ const requireRole = require("../middleware/requireRole");
 const Issue = require("../models/Issue");
 const User = require("../models/User");
 const admin = require("../firebaseAdmin");
+const Timeline = require("../models/Timeline");
+
+async function createTimeline(issueId, status, note, userId) {
+  return Timeline.create({
+    issueId,
+    status: status,
+    note,
+    updatedBy: userId || null,
+  });
+}
 
 // GET all issues (Admin View)
 router.get("/issues", verifyFirebaseToken, requireRole(["admin"]), async (req, res) => {
@@ -33,9 +43,9 @@ router.post("/issues/:id/assign", verifyFirebaseToken, requireRole(["admin"]), a
     if (!staff || staff.role !== "staff") return res.status(400).json({ success: false, message: "Invalid staff" });
 
     issue.assignedStaffId = staff._id;
-    // We'll handle timeline creation in a separate step/controller as per plan, 
-    // but for now, let's keep it simple to get the server running.
     await issue.save();
+    
+    await createTimeline(issue._id, issue.status, `Issue assigned to ${staff.name}`, req.user._id);
 
     return res.json({ success: true, data: issue });
   } catch (err) {
@@ -53,6 +63,8 @@ router.post("/issues/:id/reject", verifyFirebaseToken, requireRole(["admin"]), a
 
     issue.status = "Rejected";
     await issue.save();
+    
+    await createTimeline(issue._id, "Rejected", "Issue rejected by Admin", req.user._id);
     return res.json({ success: true, data: issue });
   } catch (err) {
     console.error(err);

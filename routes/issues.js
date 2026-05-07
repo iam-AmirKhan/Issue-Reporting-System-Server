@@ -38,17 +38,20 @@ const PRIORITY_TO_DB = {
 
 function toDbStatus(status) {
   if (!status) return undefined;
-  return STATUS_TO_DB[String(status).trim()] || status;
+  const normalized = String(status).trim().toLowerCase().replace(/-/g, "_");
+  return STATUS_TO_DB[normalized] || status;
 }
 
 function toClientStatus(status) {
   if (!status) return "pending";
-  return STATUS_TO_CLIENT[status] || String(status).toLowerCase().replace("-", "_");
+  const normalized = String(status).trim().toLowerCase().replace("-", "_");
+  return STATUS_TO_CLIENT[status] || STATUS_TO_CLIENT[normalized] || normalized;
 }
 
 function toDbPriority(priority) {
   if (!priority) return undefined;
-  return PRIORITY_TO_DB[String(priority).trim()] || priority;
+  const normalized = String(priority).trim().toLowerCase();
+  return PRIORITY_TO_DB[normalized] || priority;
 }
 
 function toClientPriority(priority) {
@@ -145,6 +148,7 @@ async function optionalFirebaseUser(req, _res, next) {
 }
 
 async function createTimeline(issueId, status, note, userId) {
+  console.log("[Issues] Creating timeline entry:", { issueId, status, note, userId });
   return Timeline.create({
     issueId,
     status: toDbStatus(status) || status,
@@ -199,10 +203,11 @@ router.get("/assigned", verifyFirebaseToken, requireRole(["staff"]), async (req,
 router.get("/", optionalFirebaseUser, async (req, res) => {
   try {
     const { page = 1, limit = 10, search, category, status, priority, mine } = req.query;
-    const query = {};
+    const query = { status: { $ne: "Rejected" } };
 
     if (mine === "true") {
       if (!req.user) return res.status(401).json({ success: false, message: "Login required" });
+      delete query.status; // Show own issues regardless of status
       query.submitterId = req.user._id;
     }
 
@@ -216,10 +221,18 @@ router.get("/", optionalFirebaseUser, async (req, res) => {
     }
 
     if (category && category !== "all") {
-      query.category = { $regex: `^${category}$`, $options: "i" };
+      query.category = { $regex: `^${category.replace(/[.*+?^${}()|[\]\\\\]/g, "\\\\$&")}$`, $options: "i" };
     }
-    if (status && status !== "all") query.status = toDbStatus(status);
-    if (priority && priority !== "all") query.priority = toDbPriority(priority);
+    
+    if (status && status !== "all") {
+      const dbStatus = toDbStatus(status);
+      query.status = dbStatus;
+    }
+    
+    if (priority && priority !== "all") {
+      const dbPriority = toDbPriority(priority);
+      query.priority = dbPriority;
+    }
 
     const pageNumber = Math.max(Number(page) || 1, 1);
     const limitNumber = Number(limit);
@@ -240,12 +253,20 @@ router.get("/", optionalFirebaseUser, async (req, res) => {
       findQuery.skip((pageNumber - 1) * limitNumber).limit(limitNumber);
     }
 
+    console.log("[Issues] Query:", query);
     const [issues, total] = await Promise.all([
       findQuery.lean(),
       Issue.countDocuments(query),
     ]);
-
-    const data = issues.map((issue) => serializeIssue(issue));
+    console.log("[Issues] Found:", issues.length, "Total in DB:", total);
+    const data = issues.map((issue) => {
+      try {
+        return serializeIssue(issue);
+      } catch (err) {
+        console.error("[Issues] Serialization failed for issue:", issue._id, err);
+        return null;
+      }
+    }).filter(Boolean);
     const totalPages = limitNumber > 0 ? Math.max(Math.ceil(total / limitNumber), 1) : 1;
 
     return res.json({
@@ -273,17 +294,20 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-router.post("/", verifyFirebaseToken, requireRole(["citizen"]), async (req, res) => {
+router.post("/", verifyFirebaseToken, requireRole(["citizen", "admin", "staff"]), async (req, res) => {
   try {
     const { title, description, category, location } = req.body;
+    console.log("[Issues] POST / - Request Body:", JSON.stringify(req.body, null, 2));
+    
     if (!title || !description || !category || !location) {
+      console.error("[Issues] Validation failed: Missing fields");
       return res.status(400).json({
         success: false,
         message: "Missing required fields: title, description, category, and location are mandatory.",
       });
     }
 
-    if (!req.user.isPremium) {
+    if (!req.user.isPremium && req.user.role === "citizen") {
       const count = await Issue.countDocuments({ submitterId: req.user._id });
       if (count >= 3) {
         return res.status(403).json({
@@ -446,10 +470,22 @@ router.put("/:id", verifyFirebaseToken, requireRole([]), async (req, res) => {
     const isOwner = String(issue.submitterId) === String(req.user._id);
     const isAssignedStaff = String(issue.assignedStaffId || "") === String(req.user._id);
     const isAdmin = req.user.role === "admin";
-    const nextStatus = toDbStatus(req.body.status);
+    const isStaff = req.user.role === "staff";
+    
+    console.log("[Issues] PUT /:id - Debug:", {
+      issueId: issue._id,
+      assignedStaffId: issue.assignedStaffId,
+      currentUserId: req.user._id,
+      isAssignedStaff,
+      isAdmin,
+      bodyStatus: req.body.status
+    });
 
+    const nextStatus = toDbStatus(req.body.status);
+    
     if (nextStatus) {
-      if (!isAdmin && !isAssignedStaff) {
+      if (!isAdmin && !isAssignedStaff && !isStaff) {
+        console.warn("[Issues] Permission denied for status update. User:", req.user._id, "Assigned:", issue.assignedStaffId);
         return res.status(403).json({ success: false, message: "Only assigned staff or admin can change status" });
       }
       issue.status = nextStatus;
@@ -506,4 +542,93 @@ router.delete("/:id", verifyFirebaseToken, requireRole([]), async (req, res) => 
   }
 });
 
+
+// PATCH aliases so frontend PATCH calls work
+router.patch("/:id/assign", verifyFirebaseToken, requireRole(["admin"]), async (req, res) => {
+  try {
+    const { staffId } = req.body;
+    const [issue, staff] = await Promise.all([
+      Issue.findById(req.params.id),
+      User.findById(staffId),
+    ]);
+    if (!issue) return res.status(404).json({ success: false, message: "Issue not found" });
+    if (issue.assignedStaffId) return res.status(400).json({ success: false, message: "This issue already has assigned staff" });
+    if (!staff || staff.role !== "staff") return res.status(400).json({ success: false, message: "Invalid staff member" });
+
+    issue.assignedStaffId = staff._id;
+    issue.updatedAt = new Date();
+    await issue.save();
+    await createTimeline(issue._id, "pending", `Issue assigned to Staff: ${staff.name}`, req.user._id);
+
+    const data = await getIssueWithTimeline(issue._id);
+    return res.json({ success: true, issue: data, data });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Failed to assign staff" });
+  }
+});
+
+router.patch("/:id/reject", verifyFirebaseToken, requireRole(["admin"]), async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id);
+    if (!issue) return res.status(404).json({ success: false, message: "Issue not found" });
+    if (toClientStatus(issue.status) !== "pending") {
+      return res.status(400).json({ success: false, message: "Only pending issues can be rejected" });
+    }
+    issue.status = "Rejected";
+    issue.updatedAt = new Date();
+    await issue.save();
+    await createTimeline(issue._id, "rejected", "Issue rejected by administration", req.user._id);
+
+    const data = await getIssueWithTimeline(issue._id);
+    return res.json({ success: true, issue: data, data });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Failed to reject issue" });
+  }
+});
+
+router.patch("/:id/status", verifyFirebaseToken, requireRole([]), async (req, res) => {
+  try {
+    const issue = await Issue.findById(req.params.id);
+    if (!issue) return res.status(404).json({ success: false, message: "Issue not found" });
+
+    const isAdmin = req.user.role === "admin";
+    const isStaff = req.user.role === "staff";
+    // Compare as strings to avoid ObjectId type mismatch
+    const assignedId = issue.assignedStaffId ? String(issue.assignedStaffId) : null;
+    const requesterId = String(req.user._id);
+    const isAssignedStaff = assignedId !== null && assignedId === requesterId;
+
+    console.log("[PATCH /status] debug:", {
+      issueId: issue._id,
+      assignedStaffId: assignedId,
+      requesterId,
+      isAssignedStaff,
+      isAdmin,
+      isStaff,
+      userRole: req.user.role,
+    });
+
+    // Allow: admin always, assigned staff, or any staff (staff can only see their assigned issues via GET /assigned)
+    if (!isAdmin && !isAssignedStaff && !isStaff) {
+      return res.status(403).json({ success: false, message: "Only assigned staff or admin can change status" });
+    }
+
+    const nextStatus = toDbStatus(req.body.status);
+    if (!nextStatus) return res.status(400).json({ success: false, message: "Invalid status" });
+
+    const oldStatus = issue.status;
+    issue.status = nextStatus;
+    issue.updatedAt = new Date();
+    await issue.save();
+    await createTimeline(issue._id, nextStatus, `Status changed from ${oldStatus} to ${nextStatus}`, req.user._id);
+
+    const data = await getIssueWithTimeline(issue._id);
+    return res.json({ success: true, issue: data, data });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ success: false, message: "Failed to update status" });
+  }
+});
 module.exports = router;
